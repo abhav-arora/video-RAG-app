@@ -1,0 +1,11 @@
+# Python garbage
+__pycache__/
+*.py[cod]
+venv/
+.env
+my_knowledge_base/
+
+# Node/React garbage
+node_modules/
+dist/
+.DS_Store
