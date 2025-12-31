@@ -10,7 +10,7 @@ function App() {
   // 1. Send Video to Backend
 
     const handleProcess = async () => {
-    setLoading(true);
+    setStatus('LOADING');
 
     const formData = new FormData();
 
