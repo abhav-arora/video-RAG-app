@@ -9,17 +9,19 @@ function App() {
 
   // 1. Send Video to Backend
   const handleProcess = async () => {
-    if (!url) return
-    setStatus('LOADING')
-    
+    const handleProcess = async () => {
+    setLoading(true);
+
+    const formData = new FormData();
+
+    formData.append('link', videoUrl); 
+
     try {
-      // Connects to your FastAPI (ensure api.py is running!)
-      const response = await fetch(`${API_BASE_URL}/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url, name: "demo_video" })
-      })
-      
+        const response = await fetch(`${API_BASE_URL}/process`, {
+            method: "POST",
+            body: formData, // Send the form data
+
+        });
       const data = await response.json()
       if (data.status === 'success') {
         setStatus('READY')
