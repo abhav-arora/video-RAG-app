@@ -1,116 +1,150 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-# Imports for the new Google SDK
-from google import genai
-from google.genai import types
 import os
-# Import your local logic
-from ingest import process_source
-from db import add_to_db, query_db
+import shutil
+import json
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import chromadb
+import google.generativeai as genai
+from dotenv import load_dotenv
+import yt_dlp
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 
-# --- CORS (Connects React to Python) ---
+# --- CORS SETUP (Crucial for Vercel) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- CONFIGURATION ---
-from dotenv import load_dotenv # Import this
-
-load_dotenv()
-
+# --- GOOGLE GEMINI SETUP ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
 if not GOOGLE_API_KEY:
-    raise ValueError("No GOOGLE_API_KEY found. Check your .env file!")
+    raise ValueError("GOOGLE_API_KEY is missing! Check Render Environment Variables.")
 
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# Initialize the NEW Client
-client = genai.Client(api_key=GOOGLE_API_KEY)
-
-# Data Models
-class VideoRequest(BaseModel):
-    url: str
-    name: str
+# --- LIGHTWEIGHT DATABASE SETUP ---
+# We use a simple persistent storage path
+chroma_client = chromadb.PersistentClient(path="./my_knowledge_base")
+collection = chroma_client.get_or_create_collection(name="video_rag")
 
 class ChatRequest(BaseModel):
     question: str
 
+@app.get("/")
+def home():
+    return {"status": "System Ready", "backend": "Lightweight V2"}
+
+def get_gemini_embedding(text):
+    """Generates embeddings using Google's Cloud API instead of local RAM."""
+    result = genai.embed_content(
+        model="models/embedding-001",
+        content=text,
+        task_type="retrieval_document",
+        title="Video Chunk"
+    )
+    return result['embedding']
+
 @app.post("/process")
-def process_video_endpoint(request: VideoRequest):
-    print(f"⚡ Processing Video: {request.url}")
+def process_video(link: str = Form(...)):
     try:
-        segments = process_source(request.url)
-        if segments:
-            add_to_db(segments, request.name)
-            return {"status": "success", "chunks": len(segments)}
-        else:
-            raise HTTPException(status_code=400, detail="Processing returned no segments.")
+        # 1. Clear old data to save space
+        try:
+            chroma_client.delete_collection("video_rag")
+            global collection
+            collection = chroma_client.get_or_create_collection(name="video_rag")
+        except:
+            pass
+
+        # 2. Download Captions Only (Skip Audio to save RAM)
+        ydl_opts = {
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en'],
+            'outtmpl': 'video_subs',
+            'quiet': True
+        }
+        
+        transcript_text = ""
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(link, download=False)
+            # Check for subtitles
+            if 'subtitles' in info and 'en' in info['subtitles']:
+                ydl.download([link])
+                with open("video_subs.en.vtt", "r", encoding="utf-8") as f:
+                    transcript_text = f.read()
+            # Check for auto-captions
+            elif 'automatic_captions' in info and 'en' in info['automatic_captions']:
+                ydl.download([link])
+                with open("video_subs.en.vtt", "r", encoding="utf-8") as f:
+                    transcript_text = f.read()
+            else:
+                return {"status": "Error", "message": "No captions found for this video. (Lightweight mode only supports captioned videos)"}
+
+        # 3. Process Text & Create Embeddings
+        # Split text into chunks ~1000 chars
+        chunks = [transcript_text[i:i+1000] for i in range(0, len(transcript_text), 1000)]
+        
+        ids = []
+        embeddings = []
+        documents = []
+
+        for idx, chunk in enumerate(chunks):
+            # Use Google API for embedding (0 RAM usage!)
+            vector = get_gemini_embedding(chunk)
+            
+            ids.append(f"id_{idx}")
+            embeddings.append(vector)
+            documents.append(chunk)
+
+        # 4. Store in Chroma
+        collection.add(ids=ids, embeddings=embeddings, documents=documents)
+
+        return {"status": "Processing Complete", "chunks": len(chunks)}
+
     except Exception as e:
-        print(f"❌ PROCESS ERROR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "Error", "message": str(e)}
 
 @app.post("/chat")
-def chat_endpoint(request: ChatRequest):
-    print(f"\n💬 Question Received: {request.question}")
-    
+def chat(request: ChatRequest):
     try:
-        # 1. Search DB
-        results = query_db(request.question, n_results=5)
-        
-        # Check if DB is empty or returned nothing
-        if not results or not results['documents'] or not results['documents'][0]:
-            print("❌ DB Search returned empty.")
-            return {"answer": "I couldn't find any relevant info in the video.", "sources": []}
+        # 1. Convert User Question to Embedding (Google API)
+        question_embedding = genai.embed_content(
+            model="models/embedding-001",
+            content=request.question,
+            task_type="retrieval_query"
+        )['embedding']
 
-        # 2. Build Context
-        found_docs = results['documents'][0]
-        metadatas = results['metadatas'][0]
-        context_text = ""
-        timestamps = []
-        
-        for i in range(len(found_docs)):
-            timestamp = f"[{metadatas[i]['start']} - {metadatas[i]['end']}]"
-            context_text += f"Timestamp {timestamp}: {found_docs[i]}\n\n"
-            timestamps.append(timestamp)
-
-        # 3. Generate Answer (Using the NEW SDK Syntax)
-        print(" Sending to Gemini...")
-        
-        prompt = f"""
-        You are a helpful assistant. Use the transcript below to answer the question.
-        
-        TRANSCRIPT:
-        {context_text}
-        
-        QUESTION: {request.question}
-        
-        INSTRUCTIONS:
-        - Answer based ONLY on the transcript.
-        - Mention the timestamps (e.g. [00:01:30]) where you found the answer.
-        """
-        
-        # THIS IS THE PART THAT WAS LIKELY CRASHING
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite", 
-            contents=prompt
+        # 2. Search Database
+        results = collection.query(
+            query_embeddings=[question_embedding],
+            n_results=5
         )
         
-        print(" Answer Generated!")
-        return {"answer": response.text, "sources": timestamps}
+        context_text = "\n".join(results['documents'][0])
+
+        # 3. Ask Gemini
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""
+        You are a helpful assistant. Answer the question based ONLY on the context below.
+        
+        Context:
+        {context_text}
+        
+        Question: {request.question}
+        """
+        
+        response = model.generate_content(prompt)
+        return {"answer": response.text}
 
     except Exception as e:
-        # This will print the REAL error in your terminal
-        print(f" CRITICAL ERROR in /chat: {e}")
-        # Return a safe error message to the frontend so it doesn't just crash
-        return {
-            "answer": f"System Error: {str(e)}. Check terminal for details.", 
-            "sources": []
-        }
-
-# To run: uvicorn api:app --reload
+        return {"answer": f"Error: {str(e)}"}
