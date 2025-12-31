@@ -8,7 +8,7 @@ function App() {
   const [question, setQuestion] = useState('')
 
   // 1. Send Video to Backend
-  const handleProcess = async () => {
+
     const handleProcess = async () => {
     setLoading(true);
 
