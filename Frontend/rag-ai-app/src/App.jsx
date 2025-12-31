@@ -14,7 +14,7 @@ function App() {
     
     try {
       // Connects to your FastAPI (ensure api.py is running!)
-      const response = await fetch('${API_BASE_URL}/process', {
+      const response = await fetch(`${API_BASE_URL}/process`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url, name: "demo_video" })
@@ -42,7 +42,7 @@ function App() {
     setChatLog(prev => [...prev, { role: 'user', text: `> USER: ${userQ}` }])
 
     try {
-      const response = await fetch('${API_BASE_URL}/chat', {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: userQ })
