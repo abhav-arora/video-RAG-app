@@ -14,7 +14,7 @@ function App() {
 
     const formData = new FormData();
 
-    formData.append('link', videoUrl); 
+    formData.append('link', url); 
 
     try {
         const response = await fetch(`${API_BASE_URL}/process`, {
