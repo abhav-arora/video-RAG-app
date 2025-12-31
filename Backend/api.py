@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import chromadb
 import google.generativeai as genai
 from dotenv import load_dotenv
+import youtube_transcript_api
 from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
