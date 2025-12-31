@@ -1,0 +1,15 @@
+# Secrets (CRITICAL)
+.env
+backend/.env
+
+# Python garbage
+__pycache__/
+venv/
+*.pyc
+
+# Node garbage
+node_modules/
+dist/
+
+# Database
+my_knowledge_base/

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Imports for the new Google SDK
 from google import genai
 from google.genai import types
-
+import os
 # Import your local logic
 from ingest import process_source
 from db import add_to_db, query_db
@@ -20,8 +20,14 @@ app.add_middleware(
 )
 
 # --- CONFIGURATION ---
-# PASTE YOUR KEY HERE
-GOOGLE_API_KEY = "AIzaSyBcbIXPjrvfKOazOGW2j9S9HN8jSHlFr3E"
+from dotenv import load_dotenv # Import this
+
+load_dotenv()
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("No GOOGLE_API_KEY found. Check your .env file!")
 
 
 # Initialize the NEW Client

@@ -2,9 +2,16 @@ import os
 import google.genai as genai
 from ingest import process_source 
 from db import add_to_db, query_db
+from dotenv import load_dotenv # Import this
 
-## CONFIGURATION
-GOOGLE_API_KEY = "AIzaSyBcbIXPjrvfKOazOGW2j9S9HN8jSHlFr3E"
+# Load environment variables from the .env file
+load_dotenv()
+
+# Get the key safely from the environment
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("No GOOGLE_API_KEY found. Check your .env file!")
 
 client =  genai.Client(api_key=GOOGLE_API_KEY)
 
