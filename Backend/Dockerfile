@@ -1,16 +1,18 @@
 FROM python:3.9-slim
 
-# Install simple system tools
+# Install git
 RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY Backend/requirements.txt .
+# CHANGE 1: Just copy the file directly (we are already in the folder)
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY Backend/ .
+# CHANGE 2: Copy everything in the current folder
+COPY . .
 
 EXPOSE 8000
 
